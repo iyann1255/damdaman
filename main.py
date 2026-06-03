@@ -221,6 +221,9 @@ async def cb_pick(cq: CallbackQuery, bot: Bot):
         return await cq.answer("Bukan giliranmu! ⏳", show_alert=True)
 
     slot = int(cq.data.split(":")[1])
+    sources = game.all_valid_sources()
+    if slot not in sources:
+        return await cq.answer("Bidak ini tidak bisa dipilih sekarang.", show_alert=True)
     moves = game.valid_moves(slot)
     if not moves:
         return await cq.answer("Bidak ini tidak punya gerakan.", show_alert=True)
@@ -266,6 +269,17 @@ async def cb_move(cq: CallbackQuery, bot: Bot):
         wname = game.winner_name()
         await send_board(bot, cid, game, f"🏆 <b>{wname} menang!</b>")
         games.pop(cid, None); board_msg_id.pop(cid, None)
+    elif game.jumping is not None:
+        # Multi-jump: giliran belum berganti, lanjutkan lompatan
+        cont_slot = game.jumping
+        moves = game.valid_moves(cont_slot)
+        uid   = game.current_player_id()
+        name  = game.p1_name if game.turn == WHITE else game.p2_name
+        mention = f'<a href="tg://user?id={uid}">{name}</a>'
+        await send_board(bot, cid, game,
+            f"⚡ {mention} lanjutkan lompatan dari bidak <b>{cont_slot}</b>:",
+            reply_markup=kb_slots(moves, "move", ButtonStyle.SUCCESS),
+            sources=[cont_slot], targets=moves)
     else:
         sources = game.all_valid_sources()
         await send_board(bot, cid, game, turn_caption(game),

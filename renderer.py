@@ -92,18 +92,19 @@ def draw_board(game: Game, highlight_sources: list = None, highlight_targets: li
         # Pion
         piece = game.board.get(slot)
         if piece:
-            r = int(min(cw, ch) * 0.28)   # pas dalam kotak 160px
-            if piece == WHITE:
-                # Outline + fill putih
-                draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(240, 240, 240), outline=(80, 80, 80), width=BORDER_W)
-                # Lingkaran dalam
+            color, is_king = piece
+            r = int(min(cw, ch) * 0.28)
+            if color == WHITE:
+                draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(240,240,240), outline=(80,80,80), width=BORDER_W)
                 ri = int(r * 0.65)
-                draw.ellipse([cx - ri, cy - ri, cx + ri, cy + ri], fill=None, outline=(160, 160, 160), width=2)
+                draw.ellipse([cx-ri, cy-ri, cx+ri, cy+ri], fill=None, outline=(160,160,160), width=2)
             else:
-                # Pion hitam
-                draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(40, 40, 40), outline=(180, 180, 180), width=BORDER_B)
+                draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(40,40,40), outline=(180,180,180), width=BORDER_B)
                 ri = int(r * 0.65)
-                draw.ellipse([cx - ri, cy - ri, cx + ri, cy + ri], fill=None, outline=(100, 100, 100), width=2)
+                draw.ellipse([cx-ri, cy-ri, cx+ri, cy+ri], fill=None, outline=(100,100,100), width=2)
+            if is_king:
+                kr = int(r * 0.35)
+                draw.ellipse([cx-kr, cy-kr, cx+kr, cy+kr], fill=(255,200,0), outline=(160,120,0), width=2)
 
         # Nomor slot (pojok kiri atas, kecil)
         draw.text((x1 + 4, y1 + 2), str(slot), fill=COLOR_LABEL, font=font)
