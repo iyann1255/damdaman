@@ -80,9 +80,11 @@ async def send_board(bot: Bot, chat_id: int, game: Game, caption: str,
 
 
 def turn_caption(game: Game) -> str:
+    uid   = game.p1_id if game.turn == WHITE else game.p2_id
     name  = game.p1_name if game.turn == WHITE else game.p2_name
     color = "⬜ Putih" if game.turn == WHITE else "⬛ Hitam"
-    return f"Giliran <b>{name}</b> ({color})\nPilih bidak yang digerakkan:"
+    mention = f'<a href="tg://user?id={uid}">{name}</a>'
+    return f"Giliran {mention} ({color})\nPilih bidak yang digerakkan:"
 
 
 # ── Commands ──────────────────────────────────────────────────────────────────
