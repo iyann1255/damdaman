@@ -9,9 +9,8 @@ from typing import Dict, Optional
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
+from aiogram.enums import ButtonStyle, ParseMode
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     BufferedInputFile, CallbackQuery,
     InlineKeyboardButton, InlineKeyboardMarkup, Message,
@@ -35,12 +34,11 @@ router = Router()
 
 # ── Keyboard helpers ──────────────────────────────────────────────────────────
 
-def kb_slots(slots: list[int], prefix: str, emoji: str = "") -> InlineKeyboardMarkup:
-    """Buat keyboard dari list slot, 4 per baris. emoji = prefix label."""
+def kb_slots(slots: list[int], prefix: str, style: ButtonStyle = ButtonStyle.PRIMARY) -> InlineKeyboardMarkup:
+    """Buat keyboard dari list slot, 4 per baris."""
     rows, row = [], []
     for s in sorted(slots):
-        label = f"{emoji}{s}" if emoji else str(s)
-        row.append(InlineKeyboardButton(text=label, callback_data=f"{prefix}:{s}"))
+        row.append(InlineKeyboardButton(text=str(s), callback_data=f"{prefix}:{s}", style=style))
         if len(row) == 4:
             rows.append(row); row = []
     if row:
@@ -151,7 +149,7 @@ async def cmd_join(msg: Message, bot: Bot):
 
     sources = game.all_valid_sources()
     await send_board(bot, cid, game, turn_caption(game),
-                     reply_markup=kb_slots(sources, "pick", "🟡"),
+                     reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY),
                      sources=sources)
 
 
@@ -196,7 +194,7 @@ async def cb_pick(cq: CallbackQuery, bot: Bot):
     await cq.answer()
     await send_board(bot, cid, game,
         f"✅ Bidak <b>{slot}</b> dipilih.\nGerakkan kemana?",
-        reply_markup=kb_slots(moves, "move", "🟢"),
+        reply_markup=kb_slots(moves, "move", ButtonStyle.SUCCESS),
         sources=[slot], targets=moves)
 
 
@@ -225,7 +223,7 @@ async def cb_move(cq: CallbackQuery, bot: Bot):
         moves = game.valid_moves(frm)
         await send_board(bot, cid, game,
             f"❌ Tidak bisa ke slot {to}.\nGerakkan kemana?",
-            reply_markup=kb_slots(moves, "move", "🟢"),
+            reply_markup=kb_slots(moves, "move", ButtonStyle.SUCCESS),
             sources=[frm], targets=moves)
         return
 
@@ -236,7 +234,7 @@ async def cb_move(cq: CallbackQuery, bot: Bot):
     else:
         sources = game.all_valid_sources()
         await send_board(bot, cid, game, turn_caption(game),
-                         reply_markup=kb_slots(sources, "pick", "🟡"),
+                         reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY),
                          sources=sources)
 
 
