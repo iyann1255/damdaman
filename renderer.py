@@ -40,14 +40,21 @@ def _load_board() -> Image.Image:
     return _BASE_BOARD.copy()  # copy agar tidak termodifikasi
 
 
-def _cell_bbox(img_w: int, img_h: int, row: int, col: int):
-    """Bounding box (x1,y1,x2,y2) untuk cell (row,col) di gambar."""
-    cw = img_w / 8
-    ch = img_h / 4
-    x1 = int(col * cw)
-    y1 = int(row * ch)
-    x2 = int(x1 + cw)
-    y2 = int(y1 + ch)
+# Offset papan aktual (ada border di gambar)
+BOARD_X1, BOARD_Y1 = 28, 31
+BOARD_X2, BOARD_Y2 = 1252, 582
+
+
+def _cell_bbox(row: int, col: int):
+    """Bounding box (x1,y1,x2,y2) berdasarkan batas papan asli."""
+    bw = BOARD_X2 - BOARD_X1
+    bh = BOARD_Y2 - BOARD_Y1
+    cw = bw / 8
+    ch = bh / 4
+    x1 = int(BOARD_X1 + col * cw)
+    y1 = int(BOARD_Y1 + row * ch)
+    x2 = int(BOARD_X1 + (col + 1) * cw)
+    y2 = int(BOARD_Y1 + (row + 1) * ch)
     return x1, y1, x2, y2
 
 
@@ -70,7 +77,7 @@ def draw_board(game: Game, highlight_sources: list = None, highlight_targets: li
 
     for slot in range(1, 33):
         row, col = slot_to_rc(slot)
-        x1, y1, x2, y2 = _cell_bbox(W, H, row, col)
+        x1, y1, x2, y2 = _cell_bbox(row, col)
         cx = (x1 + x2) // 2
         cy = (y1 + y2) // 2
         cw = x2 - x1
