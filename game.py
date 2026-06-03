@@ -1,253 +1,136 @@
 """
-game.py — Logika Dam-daman (Indonesian Draughts)
+game.py — Logika Dam-daman 4x8
+Papan 32 slot, kiri-kanan atas-bawah:
+ 1  2  3  4  5  6  7  8
+ 9 10 11 12 13 14 15 16
+17 18 19 20 21 22 23 24
+25 26 27 28 29 30 31 32
 """
-from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional, List, Tuple, Dict
+from typing import Optional
 
-# Cell values
-EMPTY   = 0
-P1      = 1   # merah, jalan ke bawah (baris 0 → 7)
-P2      = 2   # biru,  jalan ke atas  (baris 7 → 0)
-P1_DAM  = 3
-P2_DAM  = 4
+COLS = 8
+ROWS = 4
 
-Pos = Tuple[int, int]  # (row, col)
+WHITE = "W"   # putih, mulai kiri
+BLACK = "B"   # hitam, mulai kanan
 
-
-def owner(cell: int) -> Optional[int]:
-    """Return 1 atau 2, atau None kalau kosong."""
-    if cell in (P1, P1_DAM): return 1
-    if cell in (P2, P2_DAM): return 2
-    return None
+WHITE_START  = {1, 2, 9, 10, 17, 18, 25, 26}
+BLACK_START  = {7, 8, 15, 16, 23, 24, 31, 32}
+WHITE_TARGET = BLACK_START   # putih harus isi slot kanan
+BLACK_TARGET = WHITE_START   # hitam harus isi slot kiri
 
 
-def is_dam(cell: int) -> bool:
-    return cell in (P1_DAM, P2_DAM)
+def slot_to_rc(slot: int):
+    """slot 1-32 → (row 0-3, col 0-7)"""
+    s = slot - 1
+    return s // COLS, s % COLS
 
 
-def is_dark(r: int, c: int) -> bool:
-    """Cell gelap = (r+c) ganjil — cell yang boleh dipakai."""
-    return (r + c) % 2 == 1
+def rc_to_slot(row: int, col: int) -> int:
+    return row * COLS + col + 1
 
 
-@dataclass
-class GameState:
-    board: List[List[int]] = field(default_factory=lambda: [[EMPTY]*8 for _ in range(8)])
-    turn: int = 2                          # 1 atau 2; P2 jalan duluan
-    selected: Optional[Pos] = None
-    chain_piece: Optional[Pos] = None     # posisi bidak di tengah chain capture
-    player1_id: Optional[int] = None
-    player2_id: Optional[int] = None
-    move_count: int = 0                   # untuk deteksi seri
-    winner: Optional[int] = None          # 1, 2, atau 0 (seri)
-    draw_offered_by: Optional[int] = None
+def valid(row: int, col: int) -> bool:
+    return 0 <= row < ROWS and 0 <= col < COLS
 
-    @classmethod
-    def new(cls, p1_id: int, p2_id: int) -> "GameState":
-        g = cls(player1_id=p1_id, player2_id=p2_id)
-        g._setup_board()
-        return g
 
-    def _setup_board(self):
-        for r in range(8):
-            for c in range(8):
-                if not is_dark(r, c):
-                    continue
-                if r < 3:
-                    self.board[r][c] = P1
-                elif r > 4:
-                    self.board[r][c] = P2
+class Game:
+    def __init__(self, p1_id: int, p2_id: int, p1_name: str, p2_name: str):
+        # P1 = putih, P2 = hitam (ditentukan random di bot)
+        self.p1_id   = p1_id
+        self.p2_id   = p2_id
+        self.p1_name = p1_name
+        self.p2_name = p2_name
 
-    # ── Query helpers ─────────────────────────────────────────────────
+        # board: slot → "W" | "B" | None
+        self.board: dict[int, Optional[str]] = {i: None for i in range(1, 33)}
+        for s in WHITE_START:
+            self.board[s] = WHITE
+        for s in BLACK_START:
+            self.board[s] = BLACK
 
-    def cell(self, r: int, c: int) -> int:
-        return self.board[r][c]
+        self.turn: str = WHITE          # siapa giliran sekarang
+        self.winner: Optional[str] = None
+        self.selected: Optional[int] = None   # slot yang sedang dipilih
 
-    def pieces_of(self, player: int) -> List[Pos]:
-        target = (P1, P1_DAM) if player == 1 else (P2, P2_DAM)
-        return [(r, c) for r in range(8) for c in range(8) if self.board[r][c] in target]
+    def current_player_id(self) -> int:
+        return self.p1_id if self.turn == WHITE else self.p2_id
 
-    # ── Move generation ───────────────────────────────────────────────
+    def color_of(self, player_id: int) -> str:
+        return WHITE if player_id == self.p1_id else BLACK
 
-    def _forward_dirs(self, player: int) -> List[Tuple[int, int]]:
-        """Arah maju bidak biasa."""
-        return [(1, -1), (1, 1)] if player == 1 else [(-1, -1), (-1, 1)]
-
-    def _all_dirs(self) -> List[Tuple[int, int]]:
-        return [(-1, -1), (-1, 1), (1, -1), (1, 1)]
-
-    def simple_moves(self, r: int, c: int) -> List[Pos]:
-        """Langkah biasa (tidak makan) untuk bidak di (r,c)."""
-        cell = self.board[r][c]
-        p = owner(cell)
-        if p is None:
+    def valid_moves(self, slot: int) -> list[int]:
+        """Daftar slot tujuan valid dari slot ini."""
+        color = self.board.get(slot)
+        if not color:
             return []
-        dirs = self._all_dirs() if is_dam(cell) else self._forward_dirs(p)
-        result = []
-        for dr, dc in dirs:
-            nr, nc = r + dr, c + dc
-            if 0 <= nr < 8 and 0 <= nc < 8 and self.board[nr][nc] == EMPTY:
-                result.append((nr, nc))
-        return result
-
-    def capture_moves(self, r: int, c: int, already_captured: Optional[List[Pos]] = None) -> List[Tuple[Pos, Pos]]:
-        """
-        Return list of (landing_pos, captured_pos) untuk makan dari (r,c).
-        already_captured: posisi bidak yang sudah dimakan di chain ini (belum dihapus dari board).
-        """
-        cell = self.board[r][c]
-        p = owner(cell)
-        if p is None:
-            return []
-        already_captured = already_captured or []
-        dirs = self._all_dirs()
-        result = []
-        for dr, dc in dirs:
-            mr, mc = r + dr, c + dc        # middle (bidak musuh)
-            lr, lc = r + 2*dr, c + 2*dc   # landing
-            if not (0 <= mr < 8 and 0 <= mc < 8 and 0 <= lr < 8 and 0 <= lc < 8):
+        row, col = slot_to_rc(slot)
+        moves = []
+        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nr, nc = row + dr, col + dc
+            if not valid(nr, nc):
                 continue
-            mid_cell = self.board[mr][mc]
-            if owner(mid_cell) == p or owner(mid_cell) is None:
-                continue
-            if (mr, mc) in already_captured:
-                continue
-            if self.board[lr][lc] != EMPTY:
-                continue
-            result.append(((lr, lc), (mr, mc)))
-        return result
+            nb = rc_to_slot(nr, nc)
+            if self.board[nb] is None:
+                # Langkah biasa — hanya jika tidak ada lompatan wajib
+                moves.append(nb)
+            elif self.board[nb] != color:
+                # Ada pion lawan → cek lompatan
+                lr, lc = nr + dr, nc + dc
+                if valid(lr, lc):
+                    lb = rc_to_slot(lr, lc)
+                    if self.board[lb] is None:
+                        moves.append(lb)
+        # Filter: jika ada lompatan, hanya tampilkan lompatan
+        jumps = [m for m in moves if abs(m - slot) not in (1, COLS)]
+        if jumps:
+            return jumps
+        # Lompatan = jarak 2 horizontal atau 2 baris vertikal
+        jumps2 = []
+        for m in moves:
+            mr, mc = slot_to_rc(m)
+            if abs(mr - row) == 2 or abs(mc - col) == 2:
+                jumps2.append(m)
+        return jumps2 if jumps2 else moves
 
-    def all_captures(self, player: int) -> Dict[Pos, List[Tuple[Pos, Pos]]]:
-        """Semua kemungkinan makan untuk player."""
-        out = {}
-        for pos in self.pieces_of(player):
-            caps = self.capture_moves(*pos)
-            if caps:
-                out[pos] = caps
-        return out
+    def all_valid_sources(self) -> list[int]:
+        """Semua slot milik pemain giliran ini yang punya gerakan valid."""
+        sources = []
+        for s in range(1, 33):
+            if self.board[s] == self.turn and self.valid_moves(s):
+                sources.append(s)
+        return sources
 
-    def all_simple_moves(self, player: int) -> Dict[Pos, List[Pos]]:
-        out = {}
-        for pos in self.pieces_of(player):
-            moves = self.simple_moves(*pos)
-            if moves:
-                out[pos] = moves
-        return out
-
-    def must_capture(self) -> bool:
-        return bool(self.all_captures(self.turn))
-
-    # ── Highlights untuk UI ───────────────────────────────────────────
-
-    def valid_sources(self) -> List[Pos]:
-        """Bidak yang boleh dipilih giliran ini."""
-        if self.chain_piece:
-            return [self.chain_piece]
-        if self.must_capture():
-            return list(self.all_captures(self.turn).keys())
-        return list(self.all_simple_moves(self.turn).keys())
-
-    def valid_targets(self, r: int, c: int) -> List[Pos]:
-        """
-        Cell tujuan yang boleh diklik setelah memilih bidak (r,c).
-        Return list landing positions.
-        """
-        if self.chain_piece and self.chain_piece != (r, c):
-            return []
-        caps = self.capture_moves(r, c)
-        if caps:
-            return [land for land, _ in caps]
-        if self.must_capture():
-            return []
-        return self.simple_moves(r, c)
-
-    # ── Execute move ──────────────────────────────────────────────────
-
-    def move(self, fr: int, fc: int, tr: int, tc: int) -> bool:
-        """
-        Lakukan gerakan dari (fr,fc) → (tr,tc).
-        Return True jika valid dan berhasil.
-        """
-        if self.winner is not None:
+    def move(self, frm: int, to: int) -> bool:
+        """Lakukan gerakan. Return True jika valid."""
+        if self.winner:
+            return False
+        if self.board.get(frm) != self.turn:
+            return False
+        if to not in self.valid_moves(frm):
             return False
 
-        cell = self.board[fr][fc]
-        if owner(cell) != self.turn:
-            return False
+        self.board[to] = self.board[frm]
+        self.board[frm] = None
 
-        # Cek apakah ini langkah capture
-        caps = self.capture_moves(fr, fc)
-        cap_map = {land: mid for land, mid in caps}
+        # Cek menang
+        color = self.board[to]
+        target = WHITE_TARGET if color == WHITE else BLACK_TARGET
+        if all(self.board[s] == color for s in target):
+            self.winner = color
+            return True
 
-        if (tr, tc) in cap_map:
-            # Eksekusi makan
-            mr, mc = cap_map[(tr, tc)]
-            self.board[tr][tc] = cell
-            self.board[fr][fc] = EMPTY
-            self.board[mr][mc] = EMPTY  # hapus bidak musuh langsung
-
-            promoted = self._try_promote(tr, tc)
-
-            # Cek chain capture
-            if not promoted and self.capture_moves(tr, tc):
-                self.chain_piece = (tr, tc)
-                self.selected = None
-            else:
-                self.chain_piece = None
-                self._end_turn()
-        else:
-            # Langkah biasa
-            if self.must_capture():
-                return False
-            if (tr, tc) not in self.simple_moves(fr, fc):
-                return False
-            self.board[tr][tc] = cell
-            self.board[fr][fc] = EMPTY
-            self._try_promote(tr, tc)
-            self.chain_piece = None
-            self._end_turn()
-
+        # Ganti giliran
+        self.turn = BLACK if self.turn == WHITE else WHITE
         self.selected = None
-        self._check_winner()
         return True
 
-    def _try_promote(self, r: int, c: int) -> bool:
-        """Promosi ke DAM jika sampai ujung. Return True jika promosi."""
-        cell = self.board[r][c]
-        if cell == P1 and r == 7:
-            self.board[r][c] = P1_DAM
-            return True
-        if cell == P2 and r == 0:
-            self.board[r][c] = P2_DAM
-            return True
-        return False
-
-    def _end_turn(self):
-        self.turn = 2 if self.turn == 1 else 1
-        self.move_count += 1
-
-    def _check_winner(self):
-        p1 = self.pieces_of(1)
-        p2 = self.pieces_of(2)
-        if not p1:
-            self.winner = 2
-            return
-        if not p2:
-            self.winner = 1
-            return
-
-        # Cek tidak ada gerakan legal
-        caps   = self.all_captures(self.turn)
-        simples = self.all_simple_moves(self.turn)
-        if not caps and not simples:
-            self.winner = 2 if self.turn == 1 else 1
-            return
-
-        # Seri: kedua pihak hanya DAM, 40 giliran tanpa kemajuan
-        only_dams = all(self.board[r][c] in (P1_DAM, P2_DAM) for r, c in p1 + p2)
-        if only_dams and self.move_count >= 40:
-            self.winner = 0
-
-    def is_game_over(self) -> bool:
+    def is_over(self) -> bool:
         return self.winner is not None
+
+    def winner_name(self) -> str:
+        if self.winner == WHITE:
+            return self.p1_name
+        if self.winner == BLACK:
+            return self.p2_name
+        return ""
