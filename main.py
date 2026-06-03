@@ -27,7 +27,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 log = logging.getLogger("damdaman")
 
-games:        Dict[int, Game]           = {}
+OWNER_ID   = 568033927
+INFO_LINK  = "https://t.me/oneonlysepp"
 pending:      Dict[int, tuple]          = {}
 board_msg_id: Dict[int, Optional[int]]  = {}
 
@@ -85,13 +86,29 @@ def turn_caption(game: Game) -> str:
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 @router.message(CommandStart())
-async def cmd_start(msg: Message):
+async def cmd_start(msg: Message, bot: Bot):
+    me = await bot.get_me()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        # baris 1 — 1 button
+        [InlineKeyboardButton(text="➕ Tambah ke Grup", url=f"https://t.me/{me.username}?startgroup=true")],
+        # baris 2 — 2 button
+        [
+            InlineKeyboardButton(text="📋 Fitur", callback_data="start:fitur"),
+            InlineKeyboardButton(text="👤 Owner", url=f"tg://user?id={OWNER_ID}"),
+        ],
+        # baris 3 — 1 button
+        [InlineKeyboardButton(text="📢 Info & Update", url=INFO_LINK)],
+    ])
     await msg.answer(
         "♟ <b>Dam-daman Bot</b>\n\n"
-        "/mulai — tantang lawan\n"
-        "/join — terima tantangan\n"
-        "/help — cara main",
-        parse_mode=ParseMode.HTML,
+        "Bot permainan <b>Dam-daman</b> untuk grup Telegram!\n"
+        "Tantang temanmu dan jadilah yang pertama memindahkan\n"
+        "semua pion ke sisi lawan.\n\n"
+        "• 2 pemain per game\n"
+        "• Papan 4×8 (32 slot)\n"
+        "• Gerak & lompat 4 arah\n"
+        "• Wajib lompat jika ada kesempatan",
+        reply_markup=kb,
     )
 
 
@@ -173,6 +190,19 @@ async def cmd_resign(msg: Message, bot: Bot):
 
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "start:fitur")
+async def cb_fitur(cq: CallbackQuery):
+    await cq.answer(
+        "📋 Fitur Dam-daman:\n\n"
+        "/mulai — buka tantangan\n"
+        "/join — terima tantangan\n"
+        "/menyerah — menyerah\n"
+        "/help — cara main\n\n"
+        "Klik nomor bidak → pilih tujuan",
+        show_alert=True,
+    )
+
 
 @router.callback_query(F.data.startswith("pick:"))
 async def cb_pick(cq: CallbackQuery, bot: Bot):
