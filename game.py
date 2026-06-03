@@ -65,33 +65,25 @@ class Game:
         if not color:
             return []
         row, col = slot_to_rc(slot)
-        moves = []
+        normal, jumps = [], []
+
         for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
             nr, nc = row + dr, col + dc
             if not valid(nr, nc):
                 continue
             nb = rc_to_slot(nr, nc)
             if self.board[nb] is None:
-                # Langkah biasa — hanya jika tidak ada lompatan wajib
-                moves.append(nb)
+                normal.append(nb)
             elif self.board[nb] != color:
-                # Ada pion lawan → cek lompatan
+                # Cek lompatan: 1 langkah lagi searah
                 lr, lc = nr + dr, nc + dc
                 if valid(lr, lc):
                     lb = rc_to_slot(lr, lc)
                     if self.board[lb] is None:
-                        moves.append(lb)
-        # Filter: jika ada lompatan, hanya tampilkan lompatan
-        jumps = [m for m in moves if abs(m - slot) not in (1, COLS)]
-        if jumps:
-            return jumps
-        # Lompatan = jarak 2 horizontal atau 2 baris vertikal
-        jumps2 = []
-        for m in moves:
-            mr, mc = slot_to_rc(m)
-            if abs(mr - row) == 2 or abs(mc - col) == 2:
-                jumps2.append(m)
-        return jumps2 if jumps2 else moves
+                        jumps.append(lb)
+
+        # Wajib lompat jika ada kesempatan
+        return jumps if jumps else normal
 
     def all_valid_sources(self) -> list[int]:
         """Semua slot milik pemain giliran ini yang punya gerakan valid."""
