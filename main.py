@@ -56,12 +56,7 @@ def kb_resign() -> InlineKeyboardMarkup:
 
 async def send_board(bot: Bot, chat_id: int, game: Game, caption: str,
                      reply_markup=None, sources: list = None, targets: list = None):
-    old = board_msg_id.get(chat_id)
-    if old:
-        try:
-            await bot.delete_message(chat_id, old)
-        except Exception:
-            pass
+    old = board_msg_id.pop(chat_id, None)
 
     img_bytes = draw_board(game, highlight_sources=sources, highlight_targets=targets)
     sent = await bot.send_photo(
@@ -72,6 +67,13 @@ async def send_board(bot: Bot, chat_id: int, game: Game, caption: str,
         reply_markup=reply_markup,
     )
     board_msg_id[chat_id] = sent.message_id
+
+    # Hapus pesan lama setelah kirim baru (tidak blocking)
+    if old:
+        try:
+            await bot.delete_message(chat_id, old)
+        except Exception:
+            pass
 
 
 def turn_caption(game: Game) -> str:
