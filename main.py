@@ -29,6 +29,8 @@ log = logging.getLogger("damdaman")
 
 OWNER_ID   = int(os.getenv("OWNER_ID", "0"))
 INFO_LINK  = os.getenv("INFO_LINK", "")
+
+games:        Dict[int, Game]           = {}
 pending:      Dict[int, tuple]          = {}
 board_msg_id: Dict[int, Optional[int]]  = {}
 
