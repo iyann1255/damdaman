@@ -4,11 +4,23 @@ Overlay pion di atas papan_kosong.jpg
 """
 import io
 import os
+from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
 
 from game import Game, WHITE, BLACK, slot_to_rc, WHITE_TARGET, BLACK_TARGET
 
 BOARD_IMG = os.path.join(os.path.dirname(__file__), "papan_kosong.jpg")
+_BASE_BOARD: Optional[Image.Image] = None
+_FONT: Optional[object] = None
+
+def _get_font(size: int):
+    global _FONT
+    if _FONT is None:
+        try:
+            _FONT = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size)
+        except Exception:
+            _FONT = ImageFont.load_default()
+    return _FONT
 
 # Warna pion
 COLOR_WHITE  = (255, 255, 255)
@@ -22,7 +34,10 @@ BORDER_B = 3
 
 
 def _load_board() -> Image.Image:
-    return Image.open(BOARD_IMG).convert("RGB")
+    global _BASE_BOARD
+    if _BASE_BOARD is None:
+        _BASE_BOARD = Image.open(BOARD_IMG).convert("RGB")
+    return _BASE_BOARD.copy()  # copy agar tidak termodifikasi
 
 
 def _cell_bbox(img_w: int, img_h: int, row: int, col: int):
@@ -47,11 +62,8 @@ def draw_board(game: Game, highlight_sources: list = None, highlight_targets: li
     draw = ImageDraw.Draw(img, "RGBA")
     W, H = img.size
 
-    # Font
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", max(12, H // 20))
-    except Exception:
-        font = ImageFont.load_default()
+    # Font (cached)
+    font = _get_font(max(12, H // 20))
 
     highlight_sources = set(highlight_sources or [])
     highlight_targets = set(highlight_targets or [])
