@@ -27,8 +27,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 log = logging.getLogger("damdaman")
 
-OWNER_ID   = 568033927
-INFO_LINK  = "https://t.me/oneonlysepp"
+OWNER_ID   = int(os.getenv("OWNER_ID", "0"))
+INFO_LINK  = os.getenv("INFO_LINK", "")
 pending:      Dict[int, tuple]          = {}
 board_msg_id: Dict[int, Optional[int]]  = {}
 
