@@ -73,7 +73,7 @@ def draw_board(game: Game, highlight_sources: list = None, highlight_targets: li
         # Pion
         piece = game.board.get(slot)
         if piece:
-            r = int(min(cw, ch) * 0.35)
+            r = int(min(cw, ch) * 0.28)   # pas dalam kotak 160px
             if piece == WHITE:
                 # Outline + fill putih
                 draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(240, 240, 240), outline=(80, 80, 80), width=BORDER_W)
