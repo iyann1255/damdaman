@@ -11,6 +11,7 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ButtonStyle, ParseMode
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     BufferedInputFile, CallbackQuery,
     InlineKeyboardButton, InlineKeyboardMarkup, Message,
