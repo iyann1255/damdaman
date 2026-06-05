@@ -18,8 +18,9 @@ from aiogram.types import (
 )
 from dotenv import load_dotenv
 
-from game import Game, WHITE, BLACK
+from game import Game, WHITE, BLACK, WHITE_TARGET, BLACK_TARGET
 from renderer import draw_board
+from db import init_db, log_new_game, log_move, log_game_end
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
@@ -30,9 +31,12 @@ log = logging.getLogger("damdaman")
 OWNER_ID   = int(os.getenv("OWNER_ID", "0"))
 INFO_LINK  = os.getenv("INFO_LINK", "")
 
-games:        Dict[int, Game]           = {}
-pending:      Dict[int, tuple]          = {}
-board_msg_id: Dict[int, Optional[int]]  = {}
+games:         Dict[int, Game]           = {}
+pending:       Dict[int, tuple]          = {}
+board_msg_id:  Dict[int, Optional[int]]  = {}
+pending_moves: Dict[int, list]           = {}   # cid → valid move slots saat menunggu input teks
+game_db_id:    Dict[int, int]            = {}   # cid → db game id
+move_counter:  Dict[int, int]            = {}   # cid → move number
 
 router = Router()
 
@@ -84,7 +88,7 @@ def turn_caption(game: Game) -> str:
     name  = game.p1_name if game.turn == WHITE else game.p2_name
     color = "⬜ Putih" if game.turn == WHITE else "⬛ Hitam"
     mention = f'<a href="tg://user?id={uid}">{name}</a>'
-    return f"Giliran {mention} ({color})\nPilih bidak yang digerakkan:"
+    return f"<blockquote>Giliran {mention} ({color})\nPilih bidak:</blockquote>"
 
 
 # ── Commands ──────────────────────────────────────────────────────────────────
@@ -93,14 +97,15 @@ def turn_caption(game: Game) -> str:
 async def cmd_start(msg: Message, bot: Bot):
     me = await bot.get_me()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        # baris 1 — 1 button
         [InlineKeyboardButton(text="➕ Tambah ke Grup", url=f"https://t.me/{me.username}?startgroup=true")],
-        # baris 2 — 2 button
         [
             InlineKeyboardButton(text="📋 Fitur", callback_data="start:fitur"),
             InlineKeyboardButton(text="👤 Owner", url=f"tg://user?id={OWNER_ID}"),
         ],
-        # baris 3 — 1 button
+        [
+            InlineKeyboardButton(text="📜 Rules", callback_data="start:rules"),
+            InlineKeyboardButton(text="🔒 Privasi", callback_data="start:privasi"),
+        ],
         [InlineKeyboardButton(text="📢 Info & Update", url=INFO_LINK)],
     ])
     await msg.answer(
@@ -110,8 +115,8 @@ async def cmd_start(msg: Message, bot: Bot):
         "semua pion ke sisi lawan.\n\n"
         "• 2 pemain per game\n"
         "• Papan 4×8 (32 slot)\n"
-        "• Gerak & lompat 4 arah\n"
-        "• Wajib lompat jika ada kesempatan",
+        "• Gerak & lompat diagonal\n"
+        "• Siapa full duluan menang!",
         reply_markup=kb,
     )
 
@@ -119,18 +124,57 @@ async def cmd_start(msg: Message, bot: Bot):
 @router.message(Command("help"))
 async def cmd_help(msg: Message):
     await msg.answer(
-        "📖 <b>Cara Main</b>\n\n"
-        "1. /mulai → /join\n"
-        "2. Klik button nomor bidak → klik nomor tujuan\n\n"
+        "<blockquote>📖 <b>Cara Main</b>\n\n"
+        "1. /new → Join\n"
+        "2. Klik button nomor bidak → ketik nomor tujuan\n\n"
         "⬜ Putih: slot 1,2,9,10,17,18,25,26 → target kanan\n"
         "⬛ Hitam: slot 7,8,15,16,23,24,31,32 → target kiri\n\n"
-        "Lompati pion lawan jika ada slot kosong di baliknya.\n"
-        "Jika ada lompatan, wajib lompat.",
+        "Ketik /rules untuk aturan lengkap.</blockquote>",
         parse_mode=ParseMode.HTML,
     )
 
 
-@router.message(Command("mulai"))
+@router.message(Command("rules"))
+async def cmd_rules(msg: Message):
+    await msg.answer(
+        "<blockquote>📜 <b>Aturan Dam-daman</b>\n\n"
+        "<b>Tujuan:</b>\n"
+        "Pemain yang pertama kali berhasil menempatkan ke-8 bidaknya ke area tujuan (finish) lawan dinyatakan menang.\n\n"
+        "<b>Gerakan:</b>\n"
+        "• Bidak dapat bergerak 1 langkah ke depan (maju lurus) atau 1 langkah ke samping (atas/bawah).\n"
+        "• Bidak <b>tidak dapat</b> bergerak mundur atau diagonal dalam 1 langkah.\n\n"
+        "<b>Lompatan:</b>\n"
+        "• Bidak dapat melompati bidak lain (kawan maupun lawan) secara diagonal ke depan atau lurus ke depan.\n"
+        "• Bidak yang dilompati <b>tidak</b> dihapus dari papan.\n"
+        "• Pemain dapat terus melompat hingga sampai ke tujuan selama ada bidak yang dapat dilompati.\n\n"
+        "<b>Menang:</b>\n"
+        "Pemain yang terlebih dahulu menyusun 8 bidaknya di area finish lawan memenangkan permainan.</blockquote>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.message(Command("privasi"))
+async def cmd_privasi(msg: Message):
+    await msg.answer(
+        "<blockquote>🔒 <b>Kebijakan Privasi</b>\n"
+        "Berlaku sejak: 5 Juni 2025\n\n"
+        "Selamat datang di pernyataan kebijakan privasi <b>Dam-daman Bot</b>. "
+        "Di sinilah kami menjelaskan bagaimana kami menangani Data Pribadi Anda.\n\n"
+        "<b>1. Data yang kami kumpulkan</b>\n"
+        "Data yang kami kumpulkan tidak lain adalah user ID, nama depan, "
+        "chat ID, dan data permainan (riwayat langkah). "
+        "Kami tidak menyimpan pesan Anda. Data digunakan untuk keperluan permainan "
+        "agar dapat berjalan tanpa masalah.\n\n"
+        "<b>2. Dari mana data tersebut berasal?</b>\n"
+        "Data ini secara otomatis diberikan oleh Telegram saat Anda menggunakan bot ini.\n\n"
+        "<b>3. Data yang kami bagikan kepada pihak ketiga</b>\n"
+        "Kami tidak pernah membagikan data Anda kepada pihak ketiga.\n\n"
+        "<i>Kebijakan Privasi ini dapat berubah seiring waktu tanpa pemberitahuan lebih lanjut.</i></blockquote>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.message(Command("new"))
 async def cmd_mulai(msg: Message):
     cid = msg.chat.id
     if not msg.from_user:
@@ -138,9 +182,13 @@ async def cmd_mulai(msg: Message):
     if cid in games:
         return await msg.reply("⚠️ Ada game berjalan. Selesaikan dulu atau /menyerah.")
     pending[cid] = (msg.from_user.id, msg.from_user.first_name or "P1")
+    kb_join = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="⚔️ Join", callback_data="join")
+    ]])
     await msg.answer(
-        f"⚔️ <b>{msg.from_user.first_name}</b> menantang!\nKetik /join untuk menerima.",
+        f"<blockquote>⚔️ <b>{msg.from_user.first_name}</b> menantang!\nTekan tombol untuk menerima.</blockquote>",
         parse_mode=ParseMode.HTML,
+        reply_markup=kb_join,
     )
 
 
@@ -166,13 +214,13 @@ async def cmd_join(msg: Message, bot: Bot):
 
     games[cid] = game
     board_msg_id[cid] = None
+    game_db_id[cid] = log_new_game(cid, game.p1_id, game.p1_name, game.p2_id, game.p2_name, "W", game.board)
+    move_counter[cid] = 0
 
-    await msg.answer(f"🎮 <b>Game dimulai!</b>\n{info}", parse_mode=ParseMode.HTML)
-
+    await msg.answer(f"<blockquote>🎮 <b>Game dimulai!</b>\n🏠 <code>#rm{cid}</code>\n{info}</blockquote>", parse_mode=ParseMode.HTML)
     sources = game.all_valid_sources()
     await send_board(bot, cid, game, turn_caption(game),
-                     reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY),
-                     sources=sources)
+                     reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
 
 
 @router.message(Command("menyerah"))
@@ -187,10 +235,12 @@ async def cmd_resign(msg: Message, bot: Bot):
     loser  = WHITE if uid == game.p1_id else BLACK
     game.winner = BLACK if loser == WHITE else WHITE
     wname = game.winner_name()
-    await msg.answer(f"🏳 {msg.from_user.first_name} menyerah!\n🏆 <b>{wname} menang!</b>",
+    await msg.answer(f"<blockquote>🏳 {msg.from_user.first_name} menyerah!\n🏆 <b>{wname} menang!</b></blockquote>",
                      parse_mode=ParseMode.HTML)
-    await send_board(bot, cid, game, f"🏆 <b>{wname} menang!</b>")
+    await send_board(bot, cid, game, f"<blockquote>🏆 <b>{wname} menang!</b></blockquote>")
+    log_game_end(game_db_id.get(cid, 0), wname)
     games.pop(cid, None); board_msg_id.pop(cid, None)
+    game_db_id.pop(cid, None); move_counter.pop(cid, None)
 
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
@@ -199,18 +249,106 @@ async def cmd_resign(msg: Message, bot: Bot):
 async def cb_fitur(cq: CallbackQuery):
     await cq.answer(
         "📋 Fitur Dam-daman:\n\n"
-        "/mulai — buka tantangan\n"
-        "/join — terima tantangan\n"
+        "/new — buka tantangan\n"
         "/menyerah — menyerah\n"
-        "/help — cara main\n\n"
-        "Klik nomor bidak → pilih tujuan",
+        "/rules — aturan\n"
+        "/privasi — kebijakan privasi\n\n"
+        "Klik nomor bidak → ketik tujuan",
         show_alert=True,
     )
 
 
+@router.callback_query(F.data == "start:rules")
+async def cb_rules(cq: CallbackQuery):
+    await cq.answer()
+    await cq.message.answer(
+        "<blockquote>📜 <b>Aturan Dam-daman</b>\n\n"
+        "• Gerak: maju lurus / menyamping 1 langkah\n"
+        "• Lompat: diagonal/lurus ke depan, lewati bidak apapun\n"
+        "• Dapat terus melompat selama ada bidak yang bisa dilompati\n"
+        "• Bidak yang dilompati TIDAK dihapus\n"
+        "• Menang: 8 bidak sampai di area finish lawan duluan</blockquote>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.callback_query(F.data == "start:privasi")
+async def cb_privasi(cq: CallbackQuery):
+    await cq.answer()
+    await cq.message.answer(
+        "<blockquote>🔒 <b>Kebijakan Privasi</b>\n"
+        "Berlaku sejak: 5 Juni 2025\n\n"
+        "• Data: user ID, nama, chat ID, riwayat langkah\n"
+        "• Tidak menyimpan pesan pribadi\n"
+        "• Tidak membagikan data ke pihak ketiga\n"
+        "• Data digunakan hanya untuk jalannya permainan</blockquote>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📄 Selengkapnya", callback_data="privasi:full")
+        ]]),
+    )
+
+
+@router.callback_query(F.data == "privasi:full")
+async def cb_privasi_full(cq: CallbackQuery):
+    await cq.answer()
+    await cq.message.edit_text(
+        "<blockquote>🔒 <b>Kebijakan Privasi</b>\n"
+        "Berlaku sejak: 5 Juni 2025\n\n"
+        "Selamat datang di pernyataan kebijakan privasi <b>Dam-daman Bot</b>. "
+        "Di sinilah kami menjelaskan bagaimana kami menangani Data Pribadi Anda.\n\n"
+        "<b>1. Data yang kami kumpulkan</b>\n"
+        "Data yang kami kumpulkan tidak lain adalah user ID, nama depan, "
+        "chat ID, dan data permainan (riwayat langkah). "
+        "Kami tidak menyimpan pesan Anda. Data digunakan untuk keperluan permainan "
+        "agar dapat berjalan tanpa masalah.\n\n"
+        "<b>2. Dari mana data tersebut berasal?</b>\n"
+        "Data ini secara otomatis diberikan oleh Telegram saat Anda menggunakan bot ini.\n\n"
+        "<b>3. Data yang kami bagikan kepada pihak ketiga</b>\n"
+        "Kami tidak pernah membagikan data Anda kepada pihak ketiga.\n\n"
+        "<i>Kebijakan Privasi ini dapat berubah seiring waktu tanpa pemberitahuan lebih lanjut.</i></blockquote>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+
+
+
+@router.callback_query(F.data == "join")
+async def cb_join(cq: CallbackQuery, bot: Bot):
+    if not cq.from_user or not cq.message:
+        return
+    cid = cq.message.chat.id
+    if cid not in pending:
+        return await cq.answer("❌ Tidak ada tantangan aktif.", show_alert=True)
+    p1_id, p1_name = pending[cid]
+    if cq.from_user.id == p1_id:
+        return await cq.answer("❌ Kamu yang nantang, tunggu lawan.", show_alert=True)
+
+    pending.pop(cid)
+    p2_id, p2_name = cq.from_user.id, cq.from_user.first_name or "P2"
+
+    if random.random() < 0.5:
+        game = Game(p1_id, p2_id, p1_name, p2_name)
+        info = f"⬜ {p1_name} = Putih | ⬛ {p2_name} = Hitam"
+    else:
+        game = Game(p2_id, p1_id, p2_name, p1_name)
+        info = f"⬜ {p2_name} = Putih | ⬛ {p1_name} = Hitam"
+
+    games[cid] = game
+    board_msg_id[cid] = None
+    game_db_id[cid] = log_new_game(cid, game.p1_id, game.p1_name, game.p2_id, game.p2_name, "W", game.board)
+    move_counter[cid] = 0
+
+    await cq.answer()
+    await cq.message.edit_text(f"<blockquote>🎮 <b>Game dimulai!</b>\n🏠 <code>#rm{cid}</code>\n{info}</blockquote>", parse_mode=ParseMode.HTML)
+    sources = game.all_valid_sources()
+    await send_board(bot, cid, game, turn_caption(game),
+                     reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
+
+
 @router.callback_query(F.data.startswith("pick:"))
 async def cb_pick(cq: CallbackQuery, bot: Bot):
-    """Pemain pilih bidak."""
     if not cq.from_user or not cq.message:
         return
     cid  = cq.message.chat.id
@@ -221,70 +359,82 @@ async def cb_pick(cq: CallbackQuery, bot: Bot):
         return await cq.answer("Bukan giliranmu! ⏳", show_alert=True)
 
     slot = int(cq.data.split(":")[1])
-    sources = game.all_valid_sources()
-    if slot not in sources:
+    if slot not in game.all_valid_sources():
         return await cq.answer("Bidak ini tidak bisa dipilih sekarang.", show_alert=True)
     moves = game.valid_moves(slot)
     if not moves:
         return await cq.answer("Bidak ini tidak punya gerakan.", show_alert=True)
 
     game.selected = slot
+    pending_moves[cid] = moves
     await cq.answer()
-    await send_board(bot, cid, game,
-        f"✅ Bidak <b>{slot}</b> dipilih.\nGerakkan kemana?",
-        reply_markup=kb_slots(moves, "move", ButtonStyle.SUCCESS),
-        sources=[slot], targets=moves)
+    await send_board(bot, cid, game, f"<blockquote>✅ Bidak <b>{slot}</b> dipilih. Ketik nomor tujuan:</blockquote>")
 
 
-@router.callback_query(F.data.startswith("move:"))
-async def cb_move(cq: CallbackQuery, bot: Bot):
-    """Pemain pilih tujuan."""
-    if not cq.from_user or not cq.message:
+@router.message(F.text.regexp(r"^\d+$"))
+async def on_move_input(msg: Message, bot: Bot):
+    if not msg.from_user:
         return
-    cid  = cq.message.chat.id
+    cid  = msg.chat.id
     game = games.get(cid)
     if not game or game.is_over():
-        return await cq.answer()
-    if cq.from_user.id != game.current_player_id():
-        return await cq.answer("Bukan giliranmu! ⏳", show_alert=True)
-
-    frm = game.selected
-    to  = int(cq.data.split(":")[1])
-
-    if frm is None:
-        return await cq.answer("Pilih bidak dulu.", show_alert=True)
-
-    ok = game.move(frm, to)
-    await cq.answer()
-
-    if not ok:
-        moves = game.valid_moves(frm)
-        await send_board(bot, cid, game,
-            f"❌ Tidak bisa ke slot {to}.\nGerakkan kemana?",
-            reply_markup=kb_slots(moves, "move", ButtonStyle.SUCCESS),
-            sources=[frm], targets=moves)
         return
+    if msg.from_user.id != game.current_player_id():
+        return
+    moves = pending_moves.get(cid)
+    if not moves:
+        return
+
+    num = int(msg.text.strip())
+    if num not in moves:
+        # Cek apakah bisa dicapai via chain gerakan
+        path = game.find_path(game.selected, num)
+        if not path:
+            return await msg.reply("❌ Tujuan tidak valid.")
+        # Pindahkan bidak langsung ke tujuan akhir
+        frm = game.selected
+        pending_moves.pop(cid, None)
+        piece = game.board[frm]
+        game.board[frm] = None
+        game.board[num] = piece
+        # Cek menang
+        color = piece[0]
+        target = WHITE_TARGET if color == WHITE else BLACK_TARGET
+        if all(game.board[s] and game.board[s][0] == color for s in target):
+            game.winner = color
+        else:
+            game.turn = BLACK if game.turn == WHITE else WHITE
+            game.selected = None
+        # Log ke db
+        move_counter[cid] = move_counter.get(cid, 0) + 1
+        log_move(game_db_id.get(cid, 0), move_counter[cid], color, frm, num, game.board)
+    else:
+        frm = game.selected
+        pending_moves.pop(cid, None)
+        color = game.board[frm][0] if game.board[frm] else "?"
+        game.move(frm, num)
+        # Log ke db
+        move_counter[cid] = move_counter.get(cid, 0) + 1
+        log_move(game_db_id.get(cid, 0), move_counter[cid], color, frm, num, game.board)
 
     if game.is_over():
         wname = game.winner_name()
-        await send_board(bot, cid, game, f"🏆 <b>{wname} menang!</b>")
+        log_game_end(game_db_id.get(cid, 0), wname)
+        await send_board(bot, cid, game, f"<blockquote>🏆 <b>{wname} menang!</b></blockquote>")
         games.pop(cid, None); board_msg_id.pop(cid, None)
-    elif game.jumping is not None:
-        # Multi-jump: giliran belum berganti, lanjutkan lompatan
-        cont_slot = game.jumping
-        moves = game.valid_moves(cont_slot)
-        uid   = game.current_player_id()
-        name  = game.p1_name if game.turn == WHITE else game.p2_name
-        mention = f'<a href="tg://user?id={uid}">{name}</a>'
-        await send_board(bot, cid, game,
-            f"⚡ {mention} lanjutkan lompatan dari bidak <b>{cont_slot}</b>:",
-            reply_markup=kb_slots(moves, "move", ButtonStyle.SUCCESS),
-            sources=[cont_slot], targets=moves)
+        game_db_id.pop(cid, None); move_counter.pop(cid, None)
     else:
         sources = game.all_valid_sources()
-        await send_board(bot, cid, game, turn_caption(game),
-                         reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY),
-                         sources=sources)
+        if not sources:
+            # Pemain stuck, skip giliran
+            game.turn = BLACK if game.turn == WHITE else WHITE
+            sources = game.all_valid_sources()
+            await send_board(bot, cid, game,
+                f"<blockquote>⏭ Tidak ada gerakan tersedia, giliran dilewati.</blockquote>\n" + turn_caption(game),
+                reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
+        else:
+            await send_board(bot, cid, game, turn_caption(game),
+                             reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
 
 
 @router.callback_query(F.data == "resign")
@@ -302,8 +452,10 @@ async def cb_resign(cq: CallbackQuery, bot: Bot):
     game.winner = BLACK if loser == WHITE else WHITE
     wname      = game.winner_name()
     await cq.answer("🏳 Menyerah.")
-    await send_board(bot, cid, game, f"🏆 <b>{wname} menang!</b>")
+    await send_board(bot, cid, game, f"<blockquote>🏆 <b>{wname} menang!</b></blockquote>")
+    log_game_end(game_db_id.get(cid, 0), wname)
     games.pop(cid, None); board_msg_id.pop(cid, None)
+    game_db_id.pop(cid, None); move_counter.pop(cid, None)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -311,7 +463,17 @@ async def cb_resign(cq: CallbackQuery, bot: Bot):
 async def main():
     if not BOT_TOKEN:
         raise SystemExit("BOT_TOKEN wajib diisi di .env!")
+    init_db()
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    from aiogram.types import BotCommand
+    await bot.set_my_commands([
+        BotCommand(command="new", description="Buka tantangan baru"),
+        BotCommand(command="join", description="Terima tantangan"),
+        BotCommand(command="menyerah", description="Menyerah"),
+        BotCommand(command="rules", description="Aturan permainan"),
+        BotCommand(command="privasi", description="Kebijakan privasi"),
+        BotCommand(command="help", description="Cara main"),
+    ])
     dp  = Dispatcher()
     dp.include_router(router)
     log.info("Dam-daman bot started.")
