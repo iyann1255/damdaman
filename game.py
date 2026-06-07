@@ -66,7 +66,7 @@ class Game:
     # ── Gerakan ───────────────────────────────────────────────────────────────
 
     def _jump_moves(self, slot: int) -> list[int]:
-        """Lompat diagonal ke depan (melewati bidak apapun)."""
+        """Lompat ke depan (diagonal atau lurus), melewati bidak apapun."""
         piece = self.board[slot]
         if not piece:
             return []
@@ -112,62 +112,6 @@ class Game:
 
     def valid_moves(self, slot: int) -> list[int]:
         return self._normal_moves(slot) + self._jump_moves(slot)
-
-    def find_path(self, frm: int, target: int) -> list[int]:
-        """Cari path dari frm ke target via chain gerak biasa + lompat (BFS)."""
-        if frm == target:
-            return []
-        piece = self.board[frm]
-        if not piece:
-            return []
-        color = piece[0]
-        fdc = FORWARD_DC[color]
-
-        def get_moves(cur, board_snap):
-            """Return semua slot reachable 1 langkah (biasa + lompat) dari cur."""
-            row, col = slot_to_rc(cur)
-            moves = []
-            # Normal: maju lurus + menyamping
-            for dr, dc in DIRS_8:
-                if (dc == fdc and dr == 0) or dc == 0:
-                    nr, nc = row + dr, col + dc
-                    if 0 <= nr < ROWS and 0 <= nc < COLS:
-                        nb = rc_to_slot(nr, nc)
-                        if board_snap.get(nb) is None:
-                            moves.append(nb)
-            # Jump: diagonal ke depan
-            for dr, dc in DIRS_8:
-                if dc * fdc <= 0:
-                    continue
-                mr, mc = row + dr, col + dc
-                lr, lc = row + 2*dr, col + 2*dc
-                if not (0 <= mr < ROWS and 0 <= mc < COLS and 0 <= lr < ROWS and 0 <= lc < COLS):
-                    continue
-                mid = rc_to_slot(mr, mc)
-                land = rc_to_slot(lr, lc)
-                if board_snap.get(mid) and board_snap.get(land) is None:
-                    moves.append(land)
-            return moves
-
-        # BFS
-        from collections import deque
-        board_snap = dict(self.board)
-        queue = deque([(frm, [frm])])
-        visited = {frm}
-        while queue:
-            cur, path = queue.popleft()
-            # Simulasi board: bidak di posisi cur
-            sim_board = dict(board_snap)
-            sim_board[frm] = None
-            sim_board[cur] = (color, False)
-            for nxt in get_moves(cur, sim_board):
-                if nxt in visited:
-                    continue
-                if nxt == target:
-                    return path[1:] + [nxt]  # exclude frm, include all steps
-                visited.add(nxt)
-                queue.append((nxt, path + [nxt]))
-        return []
 
     def all_valid_sources(self) -> list[int]:
         return [s for s in range(1, 33)

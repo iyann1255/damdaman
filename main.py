@@ -5,12 +5,12 @@ import asyncio
 import logging
 import os
 import random
+import sys
 from typing import Dict, Optional
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ButtonStyle, ParseMode
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     BufferedInputFile, CallbackQuery,
@@ -18,7 +18,7 @@ from aiogram.types import (
 )
 from dotenv import load_dotenv
 
-from game import Game, WHITE, BLACK, WHITE_TARGET, BLACK_TARGET
+from game import Game, WHITE, BLACK
 from renderer import draw_board
 from db import init_db, log_new_game, log_move, log_game_end
 
@@ -43,7 +43,7 @@ router = Router()
 # ── Keyboard helpers ──────────────────────────────────────────────────────────
 
 def kb_slots(slots: list[int], prefix: str, style: ButtonStyle = ButtonStyle.PRIMARY) -> InlineKeyboardMarkup:
-    """Buat keyboard dari list slot, 4 per baris."""
+    """Buat keyboard dari list slot, 4 per baris. Tambah tombol Menyerah."""
     rows, row = [], []
     for s in sorted(slots):
         row.append(InlineKeyboardButton(text=str(s), callback_data=f"{prefix}:{s}", style=style))
@@ -51,13 +51,9 @@ def kb_slots(slots: list[int], prefix: str, style: ButtonStyle = ButtonStyle.PRI
             rows.append(row); row = []
     if row:
         rows.append(row)
+    rows.append([InlineKeyboardButton(text="🏳 Menyerah", callback_data="resign")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-
-def kb_resign() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🏳 Menyerah", callback_data="resign")
-    ]])
 
 # ── Board sender ──────────────────────────────────────────────────────────────
 
@@ -109,14 +105,19 @@ async def cmd_start(msg: Message, bot: Bot):
         [InlineKeyboardButton(text="📢 Info & Update", url=INFO_LINK)],
     ])
     await msg.answer(
-        "♟ <b>Dam-daman Bot</b>\n\n"
-        "Bot permainan <b>Dam-daman</b> untuk grup Telegram!\n"
-        "Tantang temanmu dan jadilah yang pertama memindahkan\n"
-        "semua pion ke sisi lawan.\n\n"
-        "• 2 pemain per game\n"
-        "• Papan 4×8 (32 slot)\n"
-        "• Gerak & lompat diagonal\n"
-        "• Siapa full duluan menang!",
+        "┏━━━━━━━━━━━━━━━━━━━┓\n"
+        "┃  ♟ <b>DAM-DAMAN BOT</b>  ♟  ┃\n"
+        "┗━━━━━━━━━━━━━━━━━━━┛\n\n"
+        "🎮 Mainkan permainan tradisional\n"
+        "<b>Dam-daman</b> langsung di Telegram!\n\n"
+        "┌─────────────────────┐\n"
+        "│ ⬜ vs ⬛ • 2 Pemain        │\n"
+        "│ 📐 Papan 4×8 (32 slot)   │\n"
+        "│ 🏃 Gerak & Lompat          │\n"
+        "│ 🏆 Finish duluan = Menang │\n"
+        "└─────────────────────┘\n\n"
+        "💡 <i>Tambahkan bot ke grup lalu\n"
+        "ketik /new untuk mulai!</i>",
         reply_markup=kb,
     )
 
@@ -174,6 +175,27 @@ async def cmd_privasi(msg: Message):
     )
 
 
+@router.message(Command("reboot"))
+async def cmd_reboot(msg: Message):
+    if not msg.from_user or msg.from_user.id != OWNER_ID:
+        return
+    await msg.reply("♻️ Rebooting...")
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+@router.message(Command("room"))
+async def cmd_room(msg: Message):
+    if not msg.from_user or msg.from_user.id != OWNER_ID:
+        return
+    if not games:
+        return await msg.reply("Tidak ada room aktif.")
+    lines = []
+    for cid, game in games.items():
+        color = "⬜" if game.turn == WHITE else "⬛"
+        lines.append(f"• <code>{cid}</code> — {game.p1_name} vs {game.p2_name} ({color} giliran)")
+    await msg.reply("<blockquote>🏠 <b>Room Aktif:</b>\n" + "\n".join(lines) + "</blockquote>", parse_mode=ParseMode.HTML)
+
+
 @router.message(Command("new"))
 async def cmd_mulai(msg: Message):
     cid = msg.chat.id
@@ -181,6 +203,8 @@ async def cmd_mulai(msg: Message):
         return
     if cid in games:
         return await msg.reply("⚠️ Ada game berjalan. Selesaikan dulu atau /menyerah.")
+    if cid in pending and pending[cid][0] == msg.from_user.id:
+        return await msg.reply("⚠️ Kamu sudah buka tantangan. Tunggu lawan join.")
     pending[cid] = (msg.from_user.id, msg.from_user.first_name or "P1")
     kb_join = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="⚔️ Join", callback_data="join")
@@ -214,7 +238,7 @@ async def cmd_join(msg: Message, bot: Bot):
 
     games[cid] = game
     board_msg_id[cid] = None
-    game_db_id[cid] = log_new_game(cid, game.p1_id, game.p1_name, game.p2_id, game.p2_name, "W", game.board)
+    game_db_id[cid] = await log_new_game(cid, game.p1_id, game.p1_name, game.p2_id, game.p2_name, "W", game.board)
     move_counter[cid] = 0
 
     await msg.answer(f"<blockquote>🎮 <b>Game dimulai!</b>\n🏠 <code>#rm{cid}</code>\n{info}</blockquote>", parse_mode=ParseMode.HTML)
@@ -238,9 +262,10 @@ async def cmd_resign(msg: Message, bot: Bot):
     await msg.answer(f"<blockquote>🏳 {msg.from_user.first_name} menyerah!\n🏆 <b>{wname} menang!</b></blockquote>",
                      parse_mode=ParseMode.HTML)
     await send_board(bot, cid, game, f"<blockquote>🏆 <b>{wname} menang!</b></blockquote>")
-    log_game_end(game_db_id.get(cid, 0), wname)
+    await log_game_end(game_db_id.get(cid, 0), wname)
     games.pop(cid, None); board_msg_id.pop(cid, None)
     game_db_id.pop(cid, None); move_counter.pop(cid, None)
+    pending_moves.pop(cid, None)
 
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
@@ -337,7 +362,7 @@ async def cb_join(cq: CallbackQuery, bot: Bot):
 
     games[cid] = game
     board_msg_id[cid] = None
-    game_db_id[cid] = log_new_game(cid, game.p1_id, game.p1_name, game.p2_id, game.p2_name, "W", game.board)
+    game_db_id[cid] = await log_new_game(cid, game.p1_id, game.p1_name, game.p2_id, game.p2_name, "W", game.board)
     move_counter[cid] = 0
 
     await cq.answer()
@@ -368,7 +393,10 @@ async def cb_pick(cq: CallbackQuery, bot: Bot):
     game.selected = slot
     pending_moves[cid] = moves
     await cq.answer()
-    await send_board(bot, cid, game, f"<blockquote>✅ Bidak <b>{slot}</b> dipilih. Ketik nomor tujuan:</blockquote>")
+    await send_board(bot, cid, game,
+        f"<blockquote>✅ Bidak <b>{slot}</b> dipilih. Pilih tujuan:</blockquote>",
+        sources=[slot], targets=moves,
+        reply_markup=kb_slots(moves, "dest", ButtonStyle.SECONDARY))
 
 
 @router.message(F.text.regexp(r"^\d+$"))
@@ -382,51 +410,58 @@ async def on_move_input(msg: Message, bot: Bot):
     if msg.from_user.id != game.current_player_id():
         return
     moves = pending_moves.get(cid)
-    if not moves:
+    if not moves or not game.selected:
         return
 
     num = int(msg.text.strip())
+
+    # Stop chain jump
+    if num == 0:
+        pending_moves.pop(cid, None)
+        game.turn = BLACK if game.turn == WHITE else WHITE
+        game.selected = None
+        sources = game.all_valid_sources()
+        await send_board(bot, cid, game, turn_caption(game),
+                         reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
+        return
+
     if num not in moves:
-        # Cek apakah bisa dicapai via chain gerakan
-        path = game.find_path(game.selected, num)
-        if not path:
-            return await msg.reply("❌ Tujuan tidak valid.")
-        # Pindahkan bidak langsung ke tujuan akhir
-        frm = game.selected
-        pending_moves.pop(cid, None)
-        piece = game.board[frm]
-        game.board[frm] = None
-        game.board[num] = piece
-        # Cek menang
-        color = piece[0]
-        target = WHITE_TARGET if color == WHITE else BLACK_TARGET
-        if all(game.board[s] and game.board[s][0] == color for s in target):
-            game.winner = color
-        else:
-            game.turn = BLACK if game.turn == WHITE else WHITE
-            game.selected = None
-        # Log ke db
-        move_counter[cid] = move_counter.get(cid, 0) + 1
-        log_move(game_db_id.get(cid, 0), move_counter[cid], color, frm, num, game.board)
-    else:
-        frm = game.selected
-        pending_moves.pop(cid, None)
-        color = game.board[frm][0] if game.board[frm] else "?"
-        game.move(frm, num)
-        # Log ke db
-        move_counter[cid] = move_counter.get(cid, 0) + 1
-        log_move(game_db_id.get(cid, 0), move_counter[cid], color, frm, num, game.board)
+        return await msg.reply("❌ Tujuan tidak valid.")
+
+    frm = game.selected
+    pending_moves.pop(cid, None)
+    color = game.board[frm][0] if game.board[frm] else "?"
+    is_jump = num in game._jump_moves(frm)
+    game.move(frm, num)
+
+    # Log ke db
+    move_counter[cid] = move_counter.get(cid, 0) + 1
+    await log_move(game_db_id.get(cid, 0), move_counter[cid], color, frm, num, game.board)
+
+    # Setelah lompat, cek apakah bisa lompat lagi (chain jump)
+    if is_jump and not game.is_over():
+        next_jumps = game._jump_moves(num)
+        if next_jumps:
+            # Kembalikan giliran ke pemain yang sama untuk chain jump
+            game.turn = WHITE if color == WHITE else BLACK
+            game.selected = num
+            pending_moves[cid] = next_jumps
+            await send_board(bot, cid, game,
+                f"<blockquote>🔄 Lompat lagi! Bidak <b>{num}</b> bisa lanjut.\nPilih tujuan atau ketik <b>0</b> untuk stop:</blockquote>",
+                sources=[num], targets=next_jumps,
+                reply_markup=kb_slots(next_jumps, "dest", ButtonStyle.SECONDARY))
+            return
 
     if game.is_over():
         wname = game.winner_name()
-        log_game_end(game_db_id.get(cid, 0), wname)
+        await log_game_end(game_db_id.get(cid, 0), wname)
         await send_board(bot, cid, game, f"<blockquote>🏆 <b>{wname} menang!</b></blockquote>")
         games.pop(cid, None); board_msg_id.pop(cid, None)
         game_db_id.pop(cid, None); move_counter.pop(cid, None)
+        pending_moves.pop(cid, None)
     else:
         sources = game.all_valid_sources()
         if not sources:
-            # Pemain stuck, skip giliran
             game.turn = BLACK if game.turn == WHITE else WHITE
             sources = game.all_valid_sources()
             await send_board(bot, cid, game,
@@ -436,6 +471,67 @@ async def on_move_input(msg: Message, bot: Bot):
             await send_board(bot, cid, game, turn_caption(game),
                              reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
 
+
+
+@router.callback_query(F.data.startswith("dest:"))
+async def cb_dest(cq: CallbackQuery, bot: Bot):
+    """Handle pilihan tujuan via inline button."""
+    if not cq.from_user or not cq.message:
+        return
+    cid = cq.message.chat.id
+    game = games.get(cid)
+    if not game or game.is_over():
+        return await cq.answer()
+    if cq.from_user.id != game.current_player_id():
+        return await cq.answer("Bukan giliranmu! ⏳", show_alert=True)
+    moves = pending_moves.get(cid)
+    if not moves or not game.selected:
+        return await cq.answer()
+
+    num = int(cq.data.split(":")[1])
+    if num not in moves:
+        return await cq.answer("Tujuan tidak valid.", show_alert=True)
+
+    frm = game.selected
+    pending_moves.pop(cid, None)
+    color = game.board[frm][0] if game.board[frm] else "?"
+    is_jump = num in game._jump_moves(frm)
+    game.move(frm, num)
+
+    move_counter[cid] = move_counter.get(cid, 0) + 1
+    await log_move(game_db_id.get(cid, 0), move_counter[cid], color, frm, num, game.board)
+    await cq.answer()
+
+    if is_jump and not game.is_over():
+        next_jumps = game._jump_moves(num)
+        if next_jumps:
+            game.turn = WHITE if color == WHITE else BLACK
+            game.selected = num
+            pending_moves[cid] = next_jumps
+            await send_board(bot, cid, game,
+                f"<blockquote>🔄 Lompat lagi! Bidak <b>{num}</b> bisa lanjut.\nPilih tujuan atau ketik <b>0</b> untuk stop:</blockquote>",
+                sources=[num], targets=next_jumps,
+                reply_markup=kb_slots(next_jumps, "dest", ButtonStyle.SECONDARY))
+            return
+
+    if game.is_over():
+        wname = game.winner_name()
+        await log_game_end(game_db_id.get(cid, 0), wname)
+        await send_board(bot, cid, game, f"<blockquote>🏆 <b>{wname} menang!</b></blockquote>")
+        games.pop(cid, None); board_msg_id.pop(cid, None)
+        game_db_id.pop(cid, None); move_counter.pop(cid, None)
+        pending_moves.pop(cid, None)
+    else:
+        sources = game.all_valid_sources()
+        if not sources:
+            game.turn = BLACK if game.turn == WHITE else WHITE
+            sources = game.all_valid_sources()
+            await send_board(bot, cid, game,
+                f"<blockquote>⏭ Tidak ada gerakan tersedia, giliran dilewati.</blockquote>\n" + turn_caption(game),
+                reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
+        else:
+            await send_board(bot, cid, game, turn_caption(game),
+                             reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
 
 @router.callback_query(F.data == "resign")
 async def cb_resign(cq: CallbackQuery, bot: Bot):
@@ -453,9 +549,10 @@ async def cb_resign(cq: CallbackQuery, bot: Bot):
     wname      = game.winner_name()
     await cq.answer("🏳 Menyerah.")
     await send_board(bot, cid, game, f"<blockquote>🏆 <b>{wname} menang!</b></blockquote>")
-    log_game_end(game_db_id.get(cid, 0), wname)
+    await log_game_end(game_db_id.get(cid, 0), wname)
     games.pop(cid, None); board_msg_id.pop(cid, None)
     game_db_id.pop(cid, None); move_counter.pop(cid, None)
+    pending_moves.pop(cid, None)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -463,8 +560,8 @@ async def cb_resign(cq: CallbackQuery, bot: Bot):
 async def main():
     if not BOT_TOKEN:
         raise SystemExit("BOT_TOKEN wajib diisi di .env!")
-    init_db()
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    init_db(bot)
     from aiogram.types import BotCommand
     await bot.set_my_commands([
         BotCommand(command="new", description="Buka tantangan baru"),

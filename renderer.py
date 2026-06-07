@@ -5,29 +5,18 @@ Overlay pion di atas papan_kosong.jpg
 import io
 import os
 from typing import Optional
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
-from game import Game, WHITE, BLACK, slot_to_rc, WHITE_TARGET, BLACK_TARGET
+from game import Game, WHITE, BLACK, slot_to_rc
 
 BOARD_IMG = os.path.join(os.path.dirname(__file__), "papan_kosong.jpg")
 _BASE_BOARD: Optional[Image.Image] = None
-_FONT: Optional[object] = None
-
-def _get_font(size: int):
-    global _FONT
-    if _FONT is None:
-        try:
-            _FONT = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size)
-        except Exception:
-            _FONT = ImageFont.load_default()
-    return _FONT
 
 # Warna pion
 COLOR_WHITE  = (255, 255, 255)
 COLOR_BLACK  = (30,  30,  30)
 COLOR_SEL    = (255, 215, 0)    # kuning — slot dipilih
 COLOR_TARGET = (0,   200, 100)  # hijau  — slot tujuan valid
-COLOR_LABEL  = (255, 80,  80)   # merah  — nomor slot
 
 BORDER_W = 3
 BORDER_B = 3
@@ -69,9 +58,6 @@ def draw_board(game: Game, highlight_sources: list = None, highlight_targets: li
     draw = ImageDraw.Draw(img, "RGBA")
     W, H = img.size
 
-    # Font (cached)
-    font = _get_font(max(12, H // 20))
-
     highlight_sources = set(highlight_sources or [])
     highlight_targets = set(highlight_targets or [])
 
@@ -106,8 +92,7 @@ def draw_board(game: Game, highlight_sources: list = None, highlight_targets: li
                 kr = int(r * 0.35)
                 draw.ellipse([cx-kr, cy-kr, cx+kr, cy+kr], fill=(255,200,0), outline=(160,120,0), width=2)
 
-        # Nomor slot (pojok kiri atas, kecil)
-        draw.text((x1 + 4, y1 + 2), str(slot), fill=COLOR_LABEL, font=font)
+
 
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=88)
