@@ -105,17 +105,15 @@ async def cmd_start(msg: Message, bot: Bot):
         [InlineKeyboardButton(text="📢 Info & Update", url=INFO_LINK)],
     ])
     await msg.answer(
-        "┏━━━━━━━━━━━━━━━━━━━┓\n"
-        "┃  ♟ <b>DAM-DAMAN BOT</b>  ♟  ┃\n"
-        "┗━━━━━━━━━━━━━━━━━━━┛\n\n"
+        "♟ <b>DAM‑DAMAN BOT</b> ♟\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
         "🎮 Mainkan permainan tradisional\n"
         "<b>Dam-daman</b> langsung di Telegram!\n\n"
-        "┌─────────────────────┐\n"
-        "│ ⬜ vs ⬛ • 2 Pemain        │\n"
-        "│ 📐 Papan 4×8 (32 slot)   │\n"
-        "│ 🏃 Gerak & Lompat          │\n"
-        "│ 🏆 Finish duluan = Menang │\n"
-        "└─────────────────────┘\n\n"
+        "⬜ vs ⬛  •  2 Pemain\n"
+        "📐 Papan 4×8 (32 slot)\n"
+        "🏃 Gerak &amp; Lompat\n"
+        "🏆 Finish duluan = Menang\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
         "💡 <i>Tambahkan bot ke grup lalu\n"
         "ketik /new untuk mulai!</i>",
         reply_markup=kb,
