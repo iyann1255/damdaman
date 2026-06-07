@@ -5,3 +5,4 @@ __pycache__/
 venv/
 damdaman.db
 game_logs/
+chats.json

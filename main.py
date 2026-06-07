@@ -2,6 +2,7 @@
 main.py — Bot Dam-daman Telegram (inline keyboard)
 """
 import asyncio
+import json
 import logging
 import os
 import random
@@ -194,11 +195,52 @@ async def cmd_room(msg: Message):
     await msg.reply("<blockquote>🏠 <b>Room Aktif:</b>\n" + "\n".join(lines) + "</blockquote>", parse_mode=ParseMode.HTML)
 
 
+# ── Chat tracking & Broadcast ─────────────────────────────────────────────────
+
+CHATS_FILE = os.path.join(os.path.dirname(__file__), "chats.json")
+
+
+def _load_chats() -> set:
+    if os.path.exists(CHATS_FILE):
+        with open(CHATS_FILE) as f:
+            return set(json.load(f))
+    return set()
+
+
+def _save_chat(chat_id: int):
+    chats = _load_chats()
+    if chat_id not in chats:
+        chats.add(chat_id)
+        with open(CHATS_FILE, "w") as f:
+            json.dump(list(chats), f)
+
+
+@router.message(Command("bc"))
+async def cmd_broadcast(msg: Message, bot: Bot):
+    if not msg.from_user or msg.from_user.id != OWNER_ID:
+        return
+    text = msg.text.replace("/bc", "", 1).strip() if msg.text else ""
+    if not text:
+        return await msg.reply("Gunakan: /bc <pesan>")
+    chats = _load_chats()
+    success, fail = 0, 0
+    for cid in chats:
+        try:
+            await bot.send_message(cid, text, parse_mode=ParseMode.HTML)
+            success += 1
+        except Exception:
+            fail += 1
+        await asyncio.sleep(0.05)
+    await msg.reply(f"✅ Terkirim: {success} | ❌ Gagal: {fail}")
+
+
+
 @router.message(Command("new"))
 async def cmd_mulai(msg: Message):
     cid = msg.chat.id
     if not msg.from_user:
         return
+    _save_chat(cid)
     if cid in games:
         return await msg.reply("⚠️ Ada game berjalan. Selesaikan dulu atau /menyerah.")
     if cid in pending and pending[cid][0] == msg.from_user.id:
