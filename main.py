@@ -112,7 +112,7 @@ async def cmd_start(msg: Message, bot: Bot):
         "<b>Dam-daman</b> langsung di Telegram!\n\n"
         "⬜ vs ⬛  •  2 Pemain\n"
         "📐 Papan 4×8 (32 slot)\n"
-        "🏃 Gerak &amp; Lompat\n"
+        "🏃 Gerak & Lompat\n"
         "🏆 Finish duluan = Menang\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "💡 <i>Tambahkan bot ke grup lalu\n"
@@ -436,7 +436,7 @@ async def cb_pick(cq: CallbackQuery, bot: Bot):
     await send_board(bot, cid, game,
         f"<blockquote>✅ Bidak <b>{slot}</b> dipilih. Pilih tujuan:</blockquote>",
         sources=[slot], targets=moves,
-        reply_markup=kb_slots(moves, "dest", ButtonStyle.SECONDARY))
+        reply_markup=kb_slots(moves, "dest", ButtonStyle.SUCCESS))
 
 
 @router.message(F.text.regexp(r"^\d+$"))
@@ -489,7 +489,7 @@ async def on_move_input(msg: Message, bot: Bot):
             await send_board(bot, cid, game,
                 f"<blockquote>🔄 Lompat lagi! Bidak <b>{num}</b> bisa lanjut.\nPilih tujuan atau ketik <b>0</b> untuk stop:</blockquote>",
                 sources=[num], targets=next_jumps,
-                reply_markup=kb_slots(next_jumps, "dest", ButtonStyle.SECONDARY))
+                reply_markup=kb_slots(next_jumps, "dest", ButtonStyle.SUCCESS))
             return
 
     if game.is_over():
@@ -551,7 +551,7 @@ async def cb_dest(cq: CallbackQuery, bot: Bot):
             await send_board(bot, cid, game,
                 f"<blockquote>🔄 Lompat lagi! Bidak <b>{num}</b> bisa lanjut.\nPilih tujuan atau ketik <b>0</b> untuk stop:</blockquote>",
                 sources=[num], targets=next_jumps,
-                reply_markup=kb_slots(next_jumps, "dest", ButtonStyle.SECONDARY))
+                reply_markup=kb_slots(next_jumps, "dest", ButtonStyle.SUCCESS))
             return
 
     if game.is_over():
