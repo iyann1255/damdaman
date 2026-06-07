@@ -4,3 +4,4 @@ __pycache__/
 *.session
 venv/
 damdaman.db
+game_logs/
