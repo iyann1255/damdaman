@@ -11,7 +11,7 @@ from typing import Dict, Optional
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ButtonStyle, ParseMode
+from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     BufferedInputFile, CallbackQuery,
@@ -43,11 +43,11 @@ router = Router()
 
 # ── Keyboard helpers ──────────────────────────────────────────────────────────
 
-def kb_slots(slots: list[int], prefix: str, style: ButtonStyle = ButtonStyle.PRIMARY) -> InlineKeyboardMarkup:
+def kb_slots(slots: list[int], prefix: str) -> InlineKeyboardMarkup:
     """Buat keyboard dari list slot, 4 per baris. Tambah tombol Menyerah."""
     rows, row = [], []
     for s in sorted(slots):
-        row.append(InlineKeyboardButton(text=str(s), callback_data=f"{prefix}:{s}", style=style))
+        row.append(InlineKeyboardButton(text=str(s), callback_data=f"{prefix}:{s}"))
         if len(row) == 4:
             rows.append(row); row = []
     if row:
@@ -284,7 +284,7 @@ async def cmd_join(msg: Message, bot: Bot):
     await msg.answer(f"<blockquote>🎮 <b>Game dimulai!</b>\n🏠 <code>#rm{cid}</code>\n{info}</blockquote>", parse_mode=ParseMode.HTML)
     sources = game.all_valid_sources()
     await send_board(bot, cid, game, turn_caption(game),
-                     reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
+                     reply_markup=kb_slots(sources, "pick"))
 
 
 @router.message(Command("menyerah"))
@@ -381,8 +381,8 @@ async def cb_privasi_full(cq: CallbackQuery):
 
 @router.callback_query(F.data == "join")
 async def cb_join(cq: CallbackQuery, bot: Bot):
-    if not cq.from_user or not cq.message:
-        return
+    if not cq.from_user or not cq.message or not cq.message.chat:
+        return await cq.answer()
     cid = cq.message.chat.id
     if cid not in pending:
         return await cq.answer("❌ Tidak ada tantangan aktif.", show_alert=True)
@@ -409,13 +409,13 @@ async def cb_join(cq: CallbackQuery, bot: Bot):
     await cq.message.edit_text(f"<blockquote>🎮 <b>Game dimulai!</b>\n🏠 <code>#rm{cid}</code>\n{info}</blockquote>", parse_mode=ParseMode.HTML)
     sources = game.all_valid_sources()
     await send_board(bot, cid, game, turn_caption(game),
-                     reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
+                     reply_markup=kb_slots(sources, "pick"))
 
 
 @router.callback_query(F.data.startswith("pick:"))
 async def cb_pick(cq: CallbackQuery, bot: Bot):
-    if not cq.from_user or not cq.message:
-        return
+    if not cq.from_user or not cq.message or not cq.message.chat:
+        return await cq.answer()
     cid  = cq.message.chat.id
     game = games.get(cid)
     if not game or game.is_over():
@@ -436,7 +436,7 @@ async def cb_pick(cq: CallbackQuery, bot: Bot):
     await send_board(bot, cid, game,
         f"<blockquote>✅ Bidak <b>{slot}</b> dipilih. Pilih tujuan:</blockquote>",
         sources=[slot], targets=moves,
-        reply_markup=kb_slots(moves, "dest", ButtonStyle.SUCCESS))
+        reply_markup=kb_slots(moves, "dest"))
 
 
 @router.message(F.text.regexp(r"^\d+$"))
@@ -462,7 +462,7 @@ async def on_move_input(msg: Message, bot: Bot):
         game.selected = None
         sources = game.all_valid_sources()
         await send_board(bot, cid, game, turn_caption(game),
-                         reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
+                         reply_markup=kb_slots(sources, "pick"))
         return
 
     if num not in moves:
@@ -489,7 +489,7 @@ async def on_move_input(msg: Message, bot: Bot):
             await send_board(bot, cid, game,
                 f"<blockquote>🔄 Lompat lagi! Bidak <b>{num}</b> bisa lanjut.\nPilih tujuan atau ketik <b>0</b> untuk stop:</blockquote>",
                 sources=[num], targets=next_jumps,
-                reply_markup=kb_slots(next_jumps, "dest", ButtonStyle.SUCCESS))
+                reply_markup=kb_slots(next_jumps, "dest"))
             return
 
     if game.is_over():
@@ -506,18 +506,18 @@ async def on_move_input(msg: Message, bot: Bot):
             sources = game.all_valid_sources()
             await send_board(bot, cid, game,
                 f"<blockquote>⏭ Tidak ada gerakan tersedia, giliran dilewati.</blockquote>\n" + turn_caption(game),
-                reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
+                reply_markup=kb_slots(sources, "pick"))
         else:
             await send_board(bot, cid, game, turn_caption(game),
-                             reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
+                             reply_markup=kb_slots(sources, "pick"))
 
 
 
 @router.callback_query(F.data.startswith("dest:"))
 async def cb_dest(cq: CallbackQuery, bot: Bot):
     """Handle pilihan tujuan via inline button."""
-    if not cq.from_user or not cq.message:
-        return
+    if not cq.from_user or not cq.message or not cq.message.chat:
+        return await cq.answer()
     cid = cq.message.chat.id
     game = games.get(cid)
     if not game or game.is_over():
@@ -551,7 +551,7 @@ async def cb_dest(cq: CallbackQuery, bot: Bot):
             await send_board(bot, cid, game,
                 f"<blockquote>🔄 Lompat lagi! Bidak <b>{num}</b> bisa lanjut.\nPilih tujuan atau ketik <b>0</b> untuk stop:</blockquote>",
                 sources=[num], targets=next_jumps,
-                reply_markup=kb_slots(next_jumps, "dest", ButtonStyle.SUCCESS))
+                reply_markup=kb_slots(next_jumps, "dest"))
             return
 
     if game.is_over():
@@ -568,15 +568,15 @@ async def cb_dest(cq: CallbackQuery, bot: Bot):
             sources = game.all_valid_sources()
             await send_board(bot, cid, game,
                 f"<blockquote>⏭ Tidak ada gerakan tersedia, giliran dilewati.</blockquote>\n" + turn_caption(game),
-                reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
+                reply_markup=kb_slots(sources, "pick"))
         else:
             await send_board(bot, cid, game, turn_caption(game),
-                             reply_markup=kb_slots(sources, "pick", ButtonStyle.PRIMARY))
+                             reply_markup=kb_slots(sources, "pick"))
 
 @router.callback_query(F.data == "resign")
 async def cb_resign(cq: CallbackQuery, bot: Bot):
-    if not cq.from_user or not cq.message:
-        return
+    if not cq.from_user or not cq.message or not cq.message.chat:
+        return await cq.answer()
     cid  = cq.message.chat.id
     game = games.get(cid)
     if not game:
